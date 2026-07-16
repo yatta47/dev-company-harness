@@ -12,6 +12,8 @@ from .core import (
     HarnessError,
     abandon,
     aggregate_metrics,
+    approve_irreversible,
+    confirm_dod,
     create_task,
     get_current,
     list_tasks,
@@ -145,6 +147,18 @@ def cmd_verify(args: argparse.Namespace) -> int:
     return 0 if summary["passed"] else 2
 
 
+def cmd_confirm_dod(args: argparse.Namespace) -> int:
+    slug = selected_slug(args.slug)
+    print_json({"task": slug, "dod_confirmed": confirm_dod(slug, args.by)})
+    return 0
+
+
+def cmd_approve_irreversible(args: argparse.Namespace) -> int:
+    slug = selected_slug(args.slug)
+    print_json({"task": slug, "irreversible_approved": approve_irreversible(slug, args.reason)})
+    return 0
+
+
 def cmd_abandon(args: argparse.Namespace) -> int:
     slug = selected_slug(args.slug)
     old, new = abandon(slug, args.reason)
@@ -214,17 +228,6 @@ def cmd_metrics(args: argparse.Namespace) -> int:
     return 0
 
 
-def cmd_dashboard(args: argparse.Namespace) -> int:
-    from .dashboard import serve
-    serve(host=args.host, port=args.port)
-    return 0
-
-
-def cmd_eval(_args: argparse.Namespace) -> int:
-    from evals.run_evals import run
-    return run()
-
-
 def add_optional_slug(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--slug", help="Internal override. Defaults to the active task.")
 
@@ -281,6 +284,24 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--timeout", type=int, help="Per-check timeout in seconds.")
     p.set_defaults(func=cmd_verify)
 
+    p = sub.add_parser("confirm-dod", help=(
+        "Record that a person confirmed the DoD (--by user), or that it was "
+        "supplied ready-made (--by supplied). Kept in state.json, which agents "
+        "cannot write: the secretary drafts the DoD, so it must not be able to "
+        "sign its own draft."))
+    add_optional_slug(p)
+    p.add_argument("--by", required=True, choices=["user", "supplied"])
+    p.set_defaults(func=cmd_confirm_dod)
+
+    p = sub.add_parser("approve-irreversible", help=(
+        "A human takes responsibility for a destructive change the harness "
+        "detected. Bound to the exact markers in the latest verify run, so it "
+        "cannot cover a different destructive change that appears later."))
+    add_optional_slug(p)
+    p.add_argument("--reason", required=True,
+                   help="What was accepted and why. This is the record.")
+    p.set_defaults(func=cmd_approve_irreversible)
+
     p = sub.add_parser("abandon", help=(
         "Stop this task for good, with a reason. 'We looked into it and it "
         "should not be done' is a real outcome and belongs on the record."))
@@ -325,15 +346,6 @@ def build_parser() -> argparse.ArgumentParser:
     p = sub.add_parser("metrics", help="Aggregate the event + decision logs into per-phase metrics.")
     add_optional_slug(p)
     p.set_defaults(func=cmd_metrics)
-
-    p = sub.add_parser("dashboard", help="Serve the observability dashboard (0.0.0.0 by default).")
-    p.add_argument("--host", default="0.0.0.0", help="Bind address (default 0.0.0.0 = all interfaces).")
-    p.add_argument("--port", type=int, default=None,
-                   help="Port. Omit to auto-pick the first free port from 8899 upward.")
-    p.set_defaults(func=cmd_dashboard)
-
-    p = sub.add_parser("eval")
-    p.set_defaults(func=cmd_eval)
 
     return parser
 

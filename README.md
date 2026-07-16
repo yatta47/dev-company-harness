@@ -107,12 +107,27 @@ $EDITOR ~/.config/dev-harness/profile.md
 | subagent（`.claude/agents/`） | ✅ | ✅ 実測確認済み |
 | PreToolUse hook（`.claude/settings.json`） | ✅ | ✅ 実測確認済み |
 | SessionEnd hook | ✅ | ✅ 実測確認済み |
-| subagent の `tools:` によるツール制限 | ✅ | ❌ Cursorに該当キーなし（`readonly:` で代替、**未検証**） |
-| ロール別モデル割当（`model:`） | ✅ | 有料プランのみ（無料枠は auto 固定） |
+| subagent の `tools:` によるツール制限 | ⚠️ 効くが穴がある（下記） | ❌ Cursorに該当キーなし（`readonly:` で代替、**未検証**） |
+| ロール別モデル割当（`model:`） | ✅ | 有料プランのみ（無料枠は auto 固定。Cursorが `sonnet` 等の Claude Code 式の名前を尊重するかは**未検証**。ロードが壊れないことだけ実測済み） |
 
 **なぜ `.cursor/` が無いのか。** Cursor が `.claude/` を互換ロードするためです。定義を二重に持つと片方だけ更新される事故が起きるので、意図的に `.claude/` へ一本化しています。
 
-**未解決の穴が1つあります。** Cursor 側にツール制限の等価物がありません。Claude Code では `researcher` に書き込みツールを渡さないことで「調査役は実装しない」を機構で保証できますが、Cursor では現状ロール指示（お願い）に留まります。`readonly:` が代替になるかは未検証です。
+### ツール制限は「機構的保証」ではありません
+
+**`readonly` ロールから Write/Edit を外しても、`Bash` が抜け穴として残ります。** `researcher` や `reviewer` は `sed -i` や `python3 -c` で対象リポジトリを書き換えられます。PreToolUse ガードはこの naive な形（`> file`、`tee file`）を弾きますが、**壁ではなく速度制限**です。
+
+したがってツール制限は「事故を減らすもの」であって、「敵対的な相手を封じ込めるもの」ではありません。Cursor 側に至っては等価物すらありません。
+
+**このハーネスが実際に機構で保証しているのは、以下だけです**（いずれもロール指示ではなくコードで強制。テスト済み）:
+
+| 保証 | どう強制しているか |
+|---|---|
+| 外の世界に何も出ない | **push 経路が存在しない**。`publish()` は削除済み、CLI に push コマンドが無い |
+| 破壊的変更を代理承認できない | `validate_task()` が `verify.json` の `requires_human` を検査。confidence 無関係。人間の `approve-irreversible` は**検知されたマーカーに紐づく**（`forces replacement` の承認は後から現れた `DROP TABLE` を覆わない） |
+| 秘書が自分の DoD に判子を押せない | 確認は `state.json` に入る（`dod.json` ではない）。`state.json` はハーネス専用で、ガードがエージェントの書き込みを拒否する |
+| ゲートの定義を作業者が緩められない | `config/workspace-registry.toml` への書き込みをガードが拒否（これが書けたら `test = "true"` で全ゲートが無力化する） |
+| 自己採点できない | `verify.json` はハーネスが対象リポジトリのコマンドを実際に走らせて書く。エージェントは読めるが書けない |
+| 差し戻すと承認が失効する | `return` が `irreversible_approved` を消す（`dod` へ戻せば `dod_confirmed` も）。中身を変えて古い承認で再突破できない |
 
 ## ロードマップ
 

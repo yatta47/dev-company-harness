@@ -669,6 +669,84 @@ def _verify_artifact(target: Path, state: str) -> dict[str, Any] | None:
     return data if data.get("checks") else None
 
 
+def _check_verify(
+    target: Path,
+    state_data: dict[str, Any],
+    errors: list[str],
+    warnings: list[str],
+    *,
+    require_all: bool,
+) -> None:
+    """The machine half of the verify gate.
+
+    Everything here is checked in code rather than asked of an agent, because
+    a gate an agent can talk its way past is not a gate. In particular
+    `requires_human` is enforced HERE, not in a role instruction: it is the one
+    guarantee this harness makes, and a guarantee that lives in a prompt is a
+    request.
+    """
+    verify = _verify_artifact(target, state_data["state"])
+    if verify is None:
+        errors.append(
+            "verify.json: no verify run recorded. Run "
+            "`python3 -m harness.cli verify`"
+        )
+        return
+
+    for check in verify.get("checks", []):
+        if not check.get("passed"):
+            errors.append(
+                f"verify: {check.get('check')} failed "
+                f"(exit {check.get('exit_code')}): {check.get('command')}"
+            )
+
+    # Every check the registry defines must actually have run. Without this,
+    # an agent could run only the cheap checks and skip the one that matters —
+    # and for the flagship case it is exactly the skipped one that matters:
+    # `terraform plan` is where "forces replacement" appears, so a flow that
+    # only ran lint/build would never detect a destructive change at all.
+    from .registry import RegistryError, get_repo
+    try:
+        repo = get_repo(state_data.get("repo", ""))
+    except RegistryError as exc:
+        errors.append(str(exc))
+        return
+
+    ran = {c.get("check") for c in verify.get("checks", [])}
+    defined = set(repo.verify)
+    if require_all:
+        missing = defined - ran
+        if missing:
+            errors.append(
+                f"verify: these checks are defined for {repo.name} but have not "
+                f"run in this state: {', '.join(sorted(missing))}. Run "
+                f"`python3 -m harness.cli verify` (no --check) to run them all."
+            )
+    elif not ran:
+        errors.append(f"verify: no checks ran for {repo.name}")
+
+    # --- The guarantee ---
+    # A destructive change may not be waved through by a proxy, at any
+    # confidence. This is why the harness exists; it is not advice.
+    #
+    # The approval is matched against the exact hits it was granted for and is
+    # kept in state.json, which agents cannot write. An approval for
+    # "forces replacement" does not silently cover a "DROP TABLE" that appeared
+    # later, and a proxy cannot grant itself one.
+    if verify.get("requires_human"):
+        hits = verify.get("irreversible_hits", [])
+        approved = state_data.get("irreversible_approved") or {}
+        if set(approved.get("hits", [])) != set(hits):
+            advisors = ", ".join(repo.advisors) or "(none configured for this repo)"
+            errors.append(
+                f"IRREVERSIBLE: verify output contains {', '.join(hits) or 'unknown'}. "
+                f"This change destroys or recreates something, so it cannot advance "
+                f"on a proxy approval at any confidence. Required: consult "
+                f"{advisors}, then a human records approval with "
+                f"`python3 -m harness.cli approve-irreversible --reason \"...\"`."
+            )
+
+
 def validate_task(slug: str) -> ValidationResult:
     state_data = load_state(slug)
     state = state_data["state"]
@@ -700,12 +778,20 @@ def validate_task(slug: str) -> ValidationResult:
 
         # Who signed this off. The DoD is the human confirm gate: mode 1 has a
         # person confirm the secretary's draft, mode 2 supplies it outright.
-        # Either way something outside this state machine agreed to it.
-        if dod.get("confirmed_by") not in {"user", "supplied"}:
+        #
+        # This is read from state.json, NOT from dod.json, and that difference
+        # is the whole point. The secretary writes dod.json — so a
+        # `confirmed_by` field living there would be the drafter attesting to
+        # its own draft, which is exactly what this gate exists to prevent.
+        # state.json is harness-only (the CLI writes it; the PreToolUse hook
+        # denies agents), so the confirmation cannot be self-issued.
+        confirmed = state_data.get("dod_confirmed") or {}
+        if confirmed.get("by") not in {"user", "supplied"}:
             errors.append(
-                "dod.json: confirmed_by must be 'user' (a person confirmed the "
-                "draft) or 'supplied' (the DoD was handed to the harness). "
-                "The secretary cannot confirm its own draft."
+                "DoD is not confirmed. A person must confirm the draft "
+                "(`python3 -m harness.cli confirm-dod --by user`), or it must "
+                "have been supplied ready-made (`--by supplied`). The secretary "
+                "cannot confirm its own draft."
             )
 
     elif state == "researching":
@@ -748,43 +834,19 @@ def validate_task(slug: str) -> ValidationResult:
                 errors.append(f"plan.md: unresolved marker remains: {marker}")
 
     elif state == "implementing":
-        # The gate is the repo's own commands, run by the harness, recorded to
-        # verify.json. Not the agent's opinion of its work.
-        verify = _verify_artifact(target, state)
-        if verify is None:
-            errors.append(
-                "verify.json: no verify run recorded. Run "
-                "`python3 -m harness.cli verify --check lint --check build`"
-            )
-        else:
-            for check in verify.get("checks", []):
-                if not check.get("passed"):
-                    errors.append(
-                        f"verify: {check.get('check')} failed "
-                        f"(exit {check.get('exit_code')}): {check.get('command')}"
-                    )
-            if not any(c.get("check") in {"lint", "build"} for c in verify.get("checks", [])):
-                warnings.append(
-                    "verify.json: neither lint nor build ran — is that right "
-                    "for this repo?"
-                )
+        # The gate is the repo's own commands, run by the harness. Not the
+        # agent's opinion of its work. At least one check must have run here;
+        # the full set is required before leaving `reviewing`, so that a long
+        # test suite need not be paid for on every implementing iteration.
+        _check_verify(target, state_data, errors, warnings, require_all=False)
 
     elif state == "reviewing":
-        verify = _verify_artifact(target, state)
-        if verify is None:
-            errors.append("verify.json: no verify run recorded")
-        else:
-            if not any(c.get("check") == "test" for c in verify.get("checks", [])):
-                errors.append(
-                    "verify: test has not been run in this state — "
-                    "`python3 -m harness.cli verify --check test`"
-                )
-            for check in verify.get("checks", []):
-                if not check.get("passed"):
-                    errors.append(
-                        f"verify: {check.get('check')} failed "
-                        f"(exit {check.get('exit_code')}): {check.get('command')}"
-                    )
+        # Everything the registry defines must have run and passed before this
+        # can leave. No check names are hardcoded: a repo with no `test` but a
+        # `plan` is a normal repo, and hardcoding `test` here both broke those
+        # repos and meant the check that detects destructive changes was never
+        # required to run.
+        _check_verify(target, state_data, errors, warnings, require_all=True)
 
         review = load_json(target / "review.json")
         if review.get("status") != "pass":
@@ -1003,6 +1065,17 @@ def return_to(slug: str, target_state: str, reason: str) -> tuple[str, str]:
         "to": target_state,
         "reason": reason
     })
+
+    # Going back invalidates what was agreed on the way forward. Both of these
+    # are approvals of a *specific* thing, and returning means that thing is
+    # about to change: a DoD confirmed before an edit is not a confirmation of
+    # the edited DoD, and an irreversible change signed off before a rework is
+    # not a sign-off on the reworked one. Leaving them set would let a task
+    # walk back, change substance, and re-advance on a stale human decision.
+    if target_state == "dod":
+        state_data.pop("dod_confirmed", None)
+    state_data.pop("irreversible_approved", None)
+
     save_state(slug, state_data)
     record_event(slug, {
         "type": "return",
@@ -1090,6 +1163,61 @@ def run_verify_and_record(
             "advisors_required": repo.advisors,
         })
     return summary
+
+
+def confirm_dod(slug: str, by: str) -> dict[str, Any]:
+    """Record that the DoD was agreed to by something outside the state machine.
+
+    Kept in state.json rather than dod.json on purpose: the secretary writes
+    dod.json, so a confirmation stored there would be the drafter signing its
+    own draft. state.json is harness-only.
+    """
+    if by not in {"user", "supplied"}:
+        raise HarnessError("--by must be 'user' or 'supplied'")
+    state_data = load_state(slug)
+    if state_data["state"] != "dod":
+        raise HarnessError(
+            f"task is in {state_data['state']}, not dod — nothing to confirm"
+        )
+    record = {"by": by, "at": now_iso()}
+    state_data["dod_confirmed"] = record
+    save_state(slug, state_data)
+    record_event(slug, {"type": "dod_confirmed", "stage": "dod", "by": by})
+    return record
+
+
+def approve_irreversible(slug: str, reason: str) -> dict[str, Any]:
+    """A human takes responsibility for a destructive change.
+
+    Bound to the exact markers currently detected: an approval granted for
+    "forces replacement" must not silently cover a "DROP TABLE" that shows up
+    in a later verify run. Stored in state.json so no agent can grant it.
+    """
+    if not reason.strip():
+        raise HarnessError("a reason is required — this is the record of who accepted what")
+
+    state_data = load_state(slug)
+    verify_path = task_dir(slug) / "verify.json"
+    if not verify_path.exists():
+        raise HarnessError("no verify.json — run `harness.cli verify` first")
+    verify = load_json(verify_path)
+    hits = verify.get("irreversible_hits", [])
+    if not verify.get("requires_human") or not hits:
+        raise HarnessError(
+            "the latest verify run detected nothing irreversible; there is "
+            "nothing to approve"
+        )
+
+    record = {"at": now_iso(), "reason": reason, "hits": hits, "stage": state_data["state"]}
+    state_data["irreversible_approved"] = record
+    save_state(slug, state_data)
+    record_event(slug, {
+        "type": "irreversible_approved",
+        "stage": state_data["state"],
+        "hits": hits,
+        "reason": reason,
+    })
+    return record
 
 
 def abandon(slug: str, reason: str) -> tuple[str, str]:
