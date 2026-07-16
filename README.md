@@ -104,6 +104,8 @@ $EDITOR ~/.config/dev-harness/profile.md
 
 | | Claude Code | Cursor CLI |
 |---|---|---|
+| `CLAUDE.md`（**project root**） | ✅ | ✅ 実測確認済み（rules として自動ロード） |
+| `CLAUDE.md` を `.claude/rules/` へ分割 | ✅ | ❌ **読まない**（root の1枚のみ。下記） |
 | subagent（`.claude/agents/`） | ✅ | ✅ 実測確認済み |
 | PreToolUse hook（`.claude/settings.json`） | ✅ | ✅ 実測確認済み |
 | SessionEnd hook | ✅ | ✅ 実測確認済み |
@@ -111,6 +113,8 @@ $EDITOR ~/.config/dev-harness/profile.md
 | ロール別モデル割当（`model:`） | ✅ | 有料プランのみ（無料枠は auto 固定。Cursorが `sonnet` 等の Claude Code 式の名前を尊重するかは**未検証**。ロードが壊れないことだけ実測済み） |
 
 **なぜ `.cursor/` が無いのか。** Cursor が `.claude/` を互換ロードするためです。定義を二重に持つと片方だけ更新される事故が起きるので、意図的に `.claude/` へ一本化しています。
+
+**CLAUDE.md は root に1枚で保つこと。** 公式ドキュメントいわく *"The CLI also reads `AGENTS.md` and `CLAUDE.md` **at the project root** (if present) and applies them as rules alongside `.cursor/rules`."* — 読まれるのは root の1枚だけで、`.claude/rules/` への分割は Claude Code 専用の機構です。長くなったからと分割すると、**Cursor 側だけが静かに指示を失います**（CI も落ちず、エラーも出ない）。`@import` も同じ理由で使いません。
 
 ### ツール制限は「機構的保証」ではありません
 
