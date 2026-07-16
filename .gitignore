@@ -1,0 +1,58 @@
+# =====================================================================
+# ⚠️ THIS REPOSITORY IS PUBLIC.
+#
+# The framework is public; your config and your work are not. Everything
+# in the "NEVER COMMIT" block below carries work context, company detail,
+# or personal judgment axes. See README.md "Framework vs. your config".
+#
+# CI enforces this (.github/workflows/gitleaks.yml, job `config-leak-check`)
+# so that removing a line here does not silently open a leak.
+# =====================================================================
+
+# --- NEVER COMMIT: your work -----------------------------------------
+# Task workspaces hold the DoD and its artifacts = what you actually work
+# on. On a company machine that is company business.
+tasks/*
+!tasks/.gitkeep
+
+# --- NEVER COMMIT: your config ---------------------------------------
+# The workspace registry names real repositories and their paths.
+config/*.yml
+config/*.yaml
+!config/*.example.yml
+!config/*.example.yaml
+
+# --- NEVER COMMIT: the secretary's judgment axes ----------------------
+# profile.md is your judgment axes. It is meant to live OUTSIDE this repo
+# (~/.config/dev-harness/profile.md, or $DEV_HARNESS_PROFILE) precisely so
+# that it cannot be committed. These entries are defence in depth for the
+# case where someone puts it here anyway.
+secretary/profile.md
+secretary/candidates/
+secretary/decisions.jsonl
+
+# --- NEVER COMMIT: logs that leak work context ------------------------
+# Decision and event logs carry task ids, stage names and reasons, all of
+# which describe the work itself.
+observability/events.jsonl
+.secretary-private/
+
+# --- Local state ------------------------------------------------------
+.harness/
+.claude/settings.local.json
+
+runs/*
+!runs/.gitkeep
+
+evals/results/*
+!evals/results/.gitkeep
+
+# --- Python -----------------------------------------------------------
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.env
+
+# --- OS ---------------------------------------------------------------
+.DS_Store

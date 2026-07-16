@@ -1,0 +1,56 @@
+# Gitleaks config for dev-company-harness.
+#
+# This repo is public, but it is driven against private work — including,
+# eventually, a company machine and company repositories. The leak vectors
+# it has to defend are therefore:
+#
+#   1. Secret-shaped material (keys, tokens, credentials)
+#      -> covered by gitleaks' built-in default ruleset, extended unmodified.
+#   2. Absolute personal paths (`C:\Users\<name>\`, `/home/<user>/`)
+#      -> the Windows case is the custom rule below; the unix case runs as a
+#         separate grep job in CI (see the note below for why).
+#   3. Work context escaping via config/tasks/profile
+#      -> NOT a gitleaks concern. Those are excluded by .gitignore and
+#         enforced by the `config-leak-check` CI job, which asserts the
+#         ignore rules were not bypassed (`git add -f`, a reverted
+#         .gitignore, ...). gitleaks cannot see intent; that job can.
+#
+# Inherited verbatim from yatta47/loop-harness, including the finding below,
+# which was established empirically there — do not "fix" it back into a rule:
+#
+#   There is deliberately NO gitleaks rule for absolute `/home/<user>/` unix
+#   paths, even though that is the more realistic risk for a Linux owner.
+#   gitleaks' own default config ships a *global* allowlist regex —
+#     ^/(?:bin|etc|home|opt|tmp|usr|var)/[\w ./-]+$
+#   — that treats generic absolute unix paths, `/home/...` included, as
+#   non-secrets. A custom rule for that pattern is silently swallowed once
+#   this file extends the default ruleset (`useDefault = true`): the rule
+#   fires standalone, and stops firing the moment `useDefault = true` is
+#   added — same match, same rule, only the merge changes the outcome.
+#   Rather than fight gitleaks' own allowlist, the `/home/<user>/` check runs
+#   as a plain-grep CI step (.github/workflows/gitleaks.yml, job
+#   `home-path-check`) that gitleaks' internals cannot neutralize.
+#
+# A generic "company name / hostname" denylist is intentionally not
+# implemented: it cannot be written without hardcoding the very specifics it
+# is meant to protect, which would itself be the leak. The checkable part of
+# that risk is the absolute-path checks plus config-leak-check.
+#
+# All example paths in this repo use `~/...`, which matches neither the rule
+# below nor the home-path-check grep.
+
+[extend]
+useDefault = true
+
+[[rules]]
+id = "windows-user-path"
+description = "Absolute C:\\Users\\<name>\\ filesystem path — personal path leak risk"
+regex = '''[Cc]:\\[Uu]sers\\[a-zA-Z0-9_-]+\\'''
+tags = ["personal-info", "path"]
+
+# No [allowlist] block: gitleaks rejects an empty one ("must contain at least
+# one check"), and a top-level allowlist override alongside custom rules was
+# observed to suppress the custom rules entirely — so this file defines none.
+# If a legitimate absolute Windows path is ever needed in an example (it
+# should not be — prefer ~/ or a placeholder), add a narrow allowlist rather
+# than disabling the rule wholesale.

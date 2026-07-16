@@ -1,0 +1,96 @@
+name: leak-checks
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  scan:
+    name: gitleaks
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # gitleaks needs full history to scan all commits
+
+      - name: gitleaks
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # Repo-root .gitleaks.toml is auto-detected: default secret rules
+          # plus a custom rule for absolute Windows user paths. See that file
+          # for why the unix /home/<user>/ case is NOT a gitleaks rule — it
+          # runs in home-path-check below.
+          #
+          # No GITLEAKS_LICENSE: personal-account repo, not an organization,
+          # so gitleaks-action runs unlicensed per its docs.
+
+  home-path-check:
+    name: absolute home-path check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Scan tracked files for absolute /home/<user>/ paths
+        run: |
+          set -uo pipefail
+          # See .gitleaks.toml: gitleaks' default config globally allowlists
+          # generic absolute unix paths, which neuters a custom rule for this
+          # pattern. Plain grep is not subject to that.
+          #
+          # `~/...` is intentionally allowed (used throughout the docs); only
+          # a literal absolute /home/<name>/ is flagged.
+          matches=$(grep -rnE '/home/[a-zA-Z0-9_-]+/' . 2>/dev/null \
+            | grep -v '^\./\.git' || true)
+          if [ -n "$matches" ]; then
+            echo "$matches"
+            echo "::error::Absolute /home/<user>/ path in a tracked file — use ~/ instead (see README 'Framework vs. your config')."
+            exit 1
+          fi
+          echo "No absolute /home/<user>/ paths found."
+
+  config-leak-check:
+    name: config / task / profile leak check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Assert no work context is tracked
+        run: |
+          set -uo pipefail
+          # This repo is public but is driven against private work. .gitignore
+          # keeps config/tasks/profile out — but .gitignore is advisory: it can
+          # be edited, and `git add -f` bypasses it outright. This job asserts
+          # the *outcome* (nothing of the sort is tracked) rather than trusting
+          # the rule, so that weakening .gitignore fails CI instead of silently
+          # opening a leak.
+          #
+          # Each pattern below mirrors a "NEVER COMMIT" entry in .gitignore.
+          fail=0
+          check() {
+            local desc="$1" pattern="$2"
+            local hits
+            hits=$(git ls-files -- "$pattern" | { grep -vE '\.gitkeep$|\.example\.(yml|yaml)$' || true; })
+            if [ -n "$hits" ]; then
+              echo "::error::${desc} is tracked but must never be committed:"
+              echo "$hits"
+              fail=1
+            fi
+          }
+
+          check "Task workspace (your actual work / DoD)" 'tasks/*'
+          check "Workspace registry (real repo names and paths)" 'config/*.yml'
+          check "Workspace registry (real repo names and paths)" 'config/*.yaml'
+          check "Secretary profile (your judgment axes)"    'secretary/profile.md'
+          check "Secretary profile candidates"              'secretary/candidates/*'
+          check "Secretary decision log"                    'secretary/decisions.jsonl'
+          check "Observability event log (leaks task ids / stages)" 'observability/events.jsonl'
+          check "Captured conversations"                    '.secretary-private/*'
+
+          if [ "$fail" -ne 0 ]; then
+            echo ""
+            echo "::error::See README 'Framework vs. your config'. The framework is public; your config and your work are not."
+            exit 1
+          fi
+          echo "No work context tracked."
