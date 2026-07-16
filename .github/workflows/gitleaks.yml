@@ -4,6 +4,17 @@ on:
   pull_request:
   push:
     branches: [main]
+  # On `push`, gitleaks-action scans only the range `<before>^..<after>` — which
+  # is unrunnable when <before> is the root commit (`<root>^` has no parent), so
+  # the very first push to a repo always errors out and, worse, leaves the
+  # initial history unscanned. `workflow_dispatch` and `schedule` scan the whole
+  # repository instead of a range, which both fixes that gap and gives a manual
+  # re-run button:  gh workflow run leak-checks
+  workflow_dispatch:
+  schedule:
+    # Weekly full scan: catches anything a range-scan missed and re-checks old
+    # commits against newer gitleaks rules.
+    - cron: "0 3 * * 1"
 
 jobs:
   scan:
