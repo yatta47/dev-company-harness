@@ -82,7 +82,7 @@ jobs:
           check() {
             local desc="$1" pattern="$2"
             local hits
-            hits=$(git ls-files -- "$pattern" | { grep -vE '\.gitkeep$|\.example\.(yml|yaml)$' || true; })
+            hits=$(git ls-files -- "$pattern" | { grep -vE '\.gitkeep$|\.example\.toml$' || true; })
             if [ -n "$hits" ]; then
               echo "::error::${desc} is tracked but must never be committed:"
               echo "$hits"
@@ -91,8 +91,7 @@ jobs:
           }
 
           check "Task workspace (your actual work / DoD)" 'tasks/*'
-          check "Workspace registry (real repo names and paths)" 'config/*.yml'
-          check "Workspace registry (real repo names and paths)" 'config/*.yaml'
+          check "Workspace registry (real repo names and paths)" 'config/*.toml'
           check "Secretary profile (your judgment axes)"    'secretary/profile.md'
           check "Secretary profile candidates"              'secretary/candidates/*'
           check "Secretary decision log"                    'secretary/decisions.jsonl'

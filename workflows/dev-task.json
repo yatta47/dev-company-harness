@@ -1,0 +1,60 @@
+{
+  "name": "dev-task",
+  "initial_state": "dod",
+  "states": {
+    "dod": {
+      "owner": "secretary",
+      "artifacts": ["dod.json"],
+      "next": "researching"
+    },
+    "researching": {
+      "owner": "researcher",
+      "artifacts": ["findings.md", "facts.json"],
+      "next": "planning"
+    },
+    "planning": {
+      "owner": "architect",
+      "artifacts": ["plan.md"],
+      "next": "implementing"
+    },
+    "implementing": {
+      "owner": "developer",
+      "artifacts": ["verify.json"],
+      "next": "reviewing"
+    },
+    "reviewing": {
+      "owner": "reviewer",
+      "artifacts": ["review.json", "review.md"],
+      "next": "packaging"
+    },
+    "packaging": {
+      "owner": "developer",
+      "artifacts": ["commit.md"],
+      "next": "approved"
+    },
+    "approved": {
+      "owner": "orchestrator",
+      "artifacts": ["commit.md"],
+      "next": null
+    },
+    "abandoned": {
+      "owner": "orchestrator",
+      "artifacts": ["dod.json"],
+      "next": null
+    }
+  },
+  "terminal_states": ["approved", "abandoned"],
+  "allowed_returns": {
+    "researching": ["dod"],
+    "planning": ["dod", "researching"],
+    "implementing": ["dod", "researching", "planning"],
+    "reviewing": ["dod", "researching", "planning", "implementing"],
+    "packaging": ["dod", "researching", "planning", "implementing", "reviewing"],
+    "approved": ["dod", "researching", "planning", "implementing", "reviewing", "packaging"]
+  },
+  "_notes": {
+    "no_pushed_state": "`pushed` is deliberately absent. The harness has no push path: `approved` means committed locally, waiting for a human. Publishing is not a state this machine can reach, so it is not modelled here.",
+    "abandoned": "Reachable from any non-terminal state via `cli abandon --reason`. The writing harness this was forked from had no such exit — an article is always finished. Development is not like that: 'we looked into it and it should not be done' is a normal, valuable outcome, and it needs to be recorded rather than left as a task that silently rots in `researching`.",
+    "owner_vs_advisor": "`owner` is the role accountable for the stage: exactly one per state. Domain advisors (aws-latest-architect, terraform-latest-advisor, ...) are a different axis — they are consulted, never accountable, and are configured per-repo in the workspace registry, not here."
+  }
+}

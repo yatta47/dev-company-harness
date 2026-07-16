@@ -187,7 +187,7 @@ loop-harness `docs/architecture.md` §6 の層構成（**層1+2+3は構造、層
 
 **根拠**: 執筆版のゲートは開発では**無意味**。**500文字の diff が正しい保証はゼロ**。正しさを決めるのは `make test` の exit code であって、量ではない。
 
-**実装**: `config/workspace-registry.yml` の `verify:` に repo ごとの build / lint / test コマンドを宣言し、その exit code をゲートにする。
+**実装**: `config/workspace-registry.toml` の `verify:` に repo ごとの build / lint / test コマンドを宣言し、その exit code をゲートにする。
 
 ```yaml
 verify:
@@ -198,7 +198,7 @@ verify:
 
 キーを省けばそのチェックはスキップ（lint の無い repo も正常）。コマンドは repo root を cwd として実行する。
 
-> 実例の注意（`config/workspace-registry.example.yml` に記載済み）: `terraform plan -detailed-exitcode` は 0 = 差分なし / 2 = 差分あり / 1 = エラー。**ハーネスは 1 を失敗、0/2 を pass として扱う**。「差分がある」は異常ではなく通常だから。
+> 実例の注意（`config/workspace-registry.example.toml` に記載済み）: `terraform plan -detailed-exitcode` は 0 = 差分なし / 2 = 差分あり / 1 = エラー。**ハーネスは 1 を失敗、0/2 を pass として扱う**。「差分がある」は異常ではなく通常だから。
 
 ---
 

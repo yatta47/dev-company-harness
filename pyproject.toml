@@ -1,0 +1,8 @@
+[project]
+name = "dev-company-harness"
+version = "0.1.0"
+description = "A repository-work harness for Claude Code / Cursor CLI"
+# 3.11+ for tomllib: the registry is TOML so that reading it needs no
+# third-party package, which is what lets this install on a machine where you
+# may not control pip.
+requires-python = ">=3.11"

@@ -1,0 +1,105 @@
+# workspace-registry.example.toml
+#
+# The harness's static map: which repositories exist, where they are, whether
+# they may be written, how "done" is checked, and which advisors matter there.
+#
+#   cp config/workspace-registry.example.toml config/workspace-registry.toml
+#
+# `config/workspace-registry.toml` is gitignored. THIS repo is public: real
+# repository names and paths belong in YOUR copy, never here. Use `~/...` —
+# absolute home paths fail CI.
+#
+# A DoD refers to a repo by `name`, never by path. Paths differ per machine
+# (your laptop vs. your work machine); the name is the stable handle.
+#
+# Why TOML and not YAML: the harness reads this file itself, because a gate an
+# agent can talk its way past is not a gate. Python's standard library parses
+# TOML (`tomllib`, 3.11+) and does not parse YAML — so TOML keeps the harness
+# at zero third-party dependencies, which is what makes it installable on a
+# machine where you may not control `pip`.
+
+# ---------------------------------------------------------------------
+# A typical application repo.
+# ---------------------------------------------------------------------
+[[repos]]
+name = "my-app"
+path = "~/repos/github/my-app"
+role = "work-target" # work-target | reference | knowledge
+purpose = "Application code. Branch per task, human pushes."
+
+# The harness NEVER pushes. `approved` means "committed locally, waiting for
+# you". Publishing to the outside world is yours alone.
+write = "agent-commit-only"
+remote = "none"
+branch_convention = "feature/issue-<id>-<slug>"
+advisors = [] # advisors are consulted; they never own a stage
+
+# The gates. This is the single biggest departure from the writing harness
+# this was forked from: there, a gate asked "is the draft >= 500 characters,
+# are the [TODO] markers gone". Neither means anything for code. Here a gate
+# is an exit code from YOUR repo's own commands.
+#
+# Omit a key and that check is skipped (a repo with no lint is fine).
+# Commands run with the repo root as cwd.
+[repos.verify]
+lint = "npm run lint"
+build = "npm run build"
+test = "npm test"
+
+# ---------------------------------------------------------------------
+# An infrastructure repo. Shows why advisors and irreversible_markers exist.
+# ---------------------------------------------------------------------
+[[repos]]
+name = "infra"
+path = "~/repos/github/infra"
+role = "work-target"
+purpose = "Terraform for the platform."
+write = "agent-commit-only"
+remote = "none"
+branch_convention = "feature/issue-<id>-<slug>"
+
+# Consulted during `planning` and `reviewing`. Same agent definitions as
+# .claude/agents/ — domain specialists, not stage owners.
+advisors = ["terraform-latest-advisor", "aws-latest-architect"]
+
+# If any of these strings appears in verify output, the change destroys or
+# recreates something. Two consequences, both non-negotiable:
+#
+#   1. The listed advisors are consulted — not optional, not "if the agent
+#      feels like it".
+#   2. The reviewing -> packaging boundary becomes ask_user=true. The
+#      secretary may NOT approve it by proxy, whatever its confidence.
+#
+# This is the core of the whole harness: an agent may not decide, alone, to
+# destroy something. Everything else is a means to that end.
+irreversible_markers = ["forces replacement", "must be destroyed", "will be destroyed"]
+
+[repos.verify]
+lint = "terraform fmt -check -recursive"
+build = "terraform validate"
+# -detailed-exitcode: 0 = no changes, 2 = changes present, 1 = error. Declare
+# 2 as acceptable — "there are changes" is the normal case here, not a failure.
+plan = "terraform plan -no-color -detailed-exitcode"
+
+# Exit codes other than 0 that still count as a pass, per check.
+[repos.verify_ok_exit_codes]
+plan = [0, 2]
+
+# ---------------------------------------------------------------------
+# Read-only context. Agents read it for grounding and must not write it.
+# ---------------------------------------------------------------------
+[[repos]]
+name = "specs"
+path = "~/repos/github/specs"
+role = "reference"
+purpose = "Specifications and API contracts, read for background."
+write = "read-only"
+entrypoints = ["docs/", "openapi/"]
+
+# ---------------------------------------------------------------------
+# Applied to any repo that does not set them.
+# ---------------------------------------------------------------------
+[defaults]
+write = "read-only" # deny by default; a repo must opt in to being written
+advisors = []
+irreversible_markers = ["DROP TABLE", "DROP DATABASE", "TRUNCATE"]

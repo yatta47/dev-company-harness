@@ -1,0 +1,8 @@
+{
+  "note": "Token pricing for the metrics/dashboard $ estimate. metrics multiplies default_blended_per_mtok by each agent's total subagent_tokens (a single lump count with no input/output split), so the $ figure is an APPROXIMATION, not a bill. Subagents here run on Claude Opus 4.8, list price $5.00 input / $25.00 output per 1M tokens. Because agentic loops are input-heavy (large resent context + tool results, output a minority of tokens) but this harness can't see the split, 10.0 is a rough input-weighted blend. Tune it: for a pure list-price midpoint use 15.0; if you know your real effective rate (total billed / total tokens over a period, which also folds in prompt-cache discounts), use that. Set null to hide $ entirely. per_model records the list prices for reference / future per-model attribution once agent_run events carry a model field.",
+  "currency": "USD",
+  "default_blended_per_mtok": 10.0,
+  "per_model": {
+    "claude-opus-4-8": {"input_per_mtok": 5.0, "output_per_mtok": 25.0}
+  }
+}

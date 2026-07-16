@@ -17,10 +17,8 @@ tasks/*
 
 # --- NEVER COMMIT: your config ---------------------------------------
 # The workspace registry names real repositories and their paths.
-config/*.yml
-config/*.yaml
-!config/*.example.yml
-!config/*.example.yaml
+config/*.toml
+!config/*.example.toml
 
 # --- NEVER COMMIT: the secretary's judgment axes ----------------------
 # profile.md is your judgment axes. It is meant to live OUTSIDE this repo

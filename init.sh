@@ -92,11 +92,11 @@ fi
 
 # --- 3. Your workspace registry --------------------------------------------
 echo "[3/5] Workspace registry"
-if [ -f config/workspace-registry.yml ]; then
-  skip "config/workspace-registry.yml exists (not overwriting)"
+if [ -f config/workspace-registry.toml ]; then
+  skip "config/workspace-registry.toml exists (not overwriting)"
 else
-  cp config/workspace-registry.example.yml config/workspace-registry.yml
-  ok "config/workspace-registry.yml created from the example"
+  cp config/workspace-registry.example.toml config/workspace-registry.toml
+  ok "config/workspace-registry.toml created from the example"
   say "-> edit it: real repo names, paths, verify commands, advisors"
 fi
 
@@ -147,7 +147,7 @@ echo
 echo "Instance ready."
 echo
 say "Next:"
-say "  1. edit config/workspace-registry.yml   (your repos + verify commands)"
+say "  1. edit config/workspace-registry.toml   (your repos + verify commands)"
 say "  2. edit ${PROFILE_PATH/#$HOME/\~}   (your judgment axes)"
 say "  3. git add -A && git commit            (framework only; config is ignored)"
 echo
