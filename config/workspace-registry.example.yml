@@ -1,0 +1,107 @@
+# workspace-registry.example.yml
+#
+# The harness's static map: which repositories exist, where they are, whether
+# they may be written, how "done" is checked, and which advisors matter there.
+#
+#   cp config/workspace-registry.example.yml config/workspace-registry.yml
+#
+# `config/workspace-registry.yml` is gitignored and CI asserts it is never
+# tracked (see .github/workflows/gitleaks.yml, job `config-leak-check`).
+# THIS repo is public. Real repository names and paths belong in YOUR copy,
+# never here. Use `~/...` — absolute /home/<user>/ paths fail CI.
+#
+# A DoD refers to a repo by `name`, never by path. Paths change per machine
+# (your laptop vs. your work machine); the name is the stable handle.
+
+repos:
+  # ---------------------------------------------------------------------
+  # A typical application repo.
+  # ---------------------------------------------------------------------
+  - name: my-app
+    path: ~/repos/github/my-app
+    role: work-target # work-target | reference | knowledge
+    purpose: "Application code. Branch per task, human pushes."
+
+    # The harness NEVER pushes. `approved` means "committed locally, waiting
+    # for you". Publishing to the outside world is yours alone.
+    write: agent-commit-only
+    remote: none
+    branch_convention: "feature/issue-<id>-<slug>"
+
+    # --- The gates -------------------------------------------------------
+    # This is what makes a state transition pass, and it is the single
+    # biggest departure from the writing harness this was forked from:
+    # there, a gate asked "is the draft >= 500 characters, are the [TODO]
+    # markers gone". Neither means anything for code. Here a gate is an
+    # exit code from YOUR repo's own commands.
+    #
+    # Omit a key and that check is skipped (a repo with no lint is fine).
+    # Commands run with the repo root as cwd.
+    verify:
+      lint: "npm run lint"
+      build: "npm run build"
+      test: "npm test"
+
+    # Advisors are consulted, they do not own a stage. Empty = none.
+    advisors: []
+
+  # ---------------------------------------------------------------------
+  # An infrastructure repo. Shows why advisors and irreversible_markers
+  # exist at all.
+  # ---------------------------------------------------------------------
+  - name: infra
+    path: ~/repos/github/infra
+    role: work-target
+    purpose: "Terraform for the platform."
+    write: agent-commit-only
+    remote: none
+    branch_convention: "feature/issue-<id>-<slug>"
+
+    verify:
+      lint: "terraform fmt -check -recursive"
+      build: "terraform validate"
+      # -detailed-exitcode: 0 = no changes, 2 = changes present, 1 = error.
+      # The harness treats 1 as failure and 0/2 as pass — "there are changes"
+      # is the normal case, not an error.
+      plan: "terraform plan -no-color -detailed-exitcode"
+
+    # Consulted during `planning` and `reviewing`. These are the same agent
+    # definitions as .claude/agents/ — a domain specialist, not a stage owner.
+    advisors:
+      - terraform-latest-advisor
+      - aws-latest-architect
+
+    # --- The irreversibility gate ----------------------------------------
+    # If any of these strings appears in verify output, the change destroys
+    # or recreates something. Two consequences, both non-negotiable:
+    #
+    #   1. The listed advisors are consulted — not optional, not "if the
+    #      agent feels like it".
+    #   2. The reviewing -> packaging boundary becomes ask_user=true. The
+    #      secretary may NOT approve it by proxy, whatever its confidence.
+    #
+    # This is the core of the whole harness: an agent may not decide, alone,
+    # to destroy something. Everything else is a means to that end.
+    irreversible_markers:
+      - "forces replacement"
+      - "must be destroyed"
+      - "will be destroyed"
+
+  # ---------------------------------------------------------------------
+  # Read-only context. Agents read it for grounding and must not write it.
+  # ---------------------------------------------------------------------
+  - name: specs
+    path: ~/repos/github/specs
+    role: reference
+    purpose: "Specifications and API contracts, read for background."
+    write: read-only
+    entrypoints: ["docs/", "openapi/"]
+
+# Defaults applied to any repo that does not set them.
+defaults:
+  write: read-only # deny by default; a repo must opt in to being written
+  advisors: []
+  irreversible_markers:
+    - "DROP TABLE"
+    - "DROP DATABASE"
+    - "TRUNCATE"
